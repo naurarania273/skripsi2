@@ -8,6 +8,7 @@ import av
 import numpy as np
 import cv2
 import joblib
+import urllib.request
 import mediapipe as mp
 from collections import deque, Counter
 
@@ -137,8 +138,14 @@ elif halaman.startswith("📷"):
 
     st.title("🤖 Deteksi Huruf SIBI Real-Time")
     raw_letters = ""
-    # Load model
-    model = joblib.load("sibi_rf_model.pkl")
+  # Cek apakah file sudah ada
+if not os.path.exists("sibi_rf_model.pkl"):
+    url = "https://raw.githubusercontent.com/username/repo/main/sibi_rf_model.pkl"  # ganti dengan link raw file dari GitHub kamu
+    urllib.request.urlretrieve(url, "sibi_rf_model.pkl")
+
+url = "https://drive.google.com/file/d/1U2Me1TWPst6OFHwkuJISQmrbYhz-VJay/view?usp=sharing"
+urllib.request.urlretrieve(url, "sibi_rf_model.pkl")
+model = joblib.load("sibi_rf_model.pkl")
 
     # Inisialisasi MediaPipe
     mp_hands = mp.solutions.hands
