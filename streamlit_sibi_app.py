@@ -8,6 +8,7 @@ import av
 import numpy as np
 import cv2
 import joblib
+import gdown
 import mediapipe as mp
 from collections import deque, Counter
 
@@ -137,6 +138,11 @@ elif halaman.startswith("📷"):
 
     st.title("🤖 Deteksi Huruf SIBI Real-Time")
     raw_letters = ""
+
+    # Download model jika belum ada
+if not os.path.exists("sibi_rf_model.pkl"):
+    url = "https://drive.google.com/file/d/1U2Me1TWPst6OFHwkuJISQmrbYhz-VJay/view?usp=sharing"  # ganti ID-nya
+    gdown.download(url, "sibi_rf_model.pkl", quiet=False)
     # Load model
     model = joblib.load("sibi_rf_model.pkl")
 
