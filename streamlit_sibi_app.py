@@ -1,7 +1,7 @@
 import streamlit as st
 from streamlit_webrtc import (
-    webrtc_streamer, 
-    VideoTransformerBase, 
+    webrtc_streamer,
+    VideoTransformerBase,
     WebRtcMode,
 )
 import av
@@ -16,98 +16,87 @@ import requests
 from dotenv import load_dotenv
 import os
 import time
-import requests
-
 load_dotenv()
 
+# === Fungsi untuk memperbaiki kalimat menggunakan OpenRouter/Gemini ===
 def clearer(raw_text):
-    system_prompt="""
-Tolong ubah teks Bahasa Indonesia di bawah ini menjadi kalimat lengkap dan mudah dibaca. Teks ini ditulis tanpa spasi dan mungkin mengandung salah ketik (typo). Koreksi kata-kata yang salah, tambahkan spasi, dan susun menjadi kalimat yang benar sesuai tata bahasa Indonesia.
+    """
+    Memperbaiki teks bahasa Indonesia menggunakan OpenRouter (preferred).
+    Jika gagal, mengembalikan raw_text sebagai fallback.
+    Hasil yang dikembalikan adalah string final (bukan JSON).
+    """
+    if not raw_text:
+        return ""
 
-Berikan hasil akhirnya **hanya** dalam tanda petik ganda seperti "..." tanpa penjelasan tambahan.
-Contoh:
-Input: sayamaukepasarmembelibuahtapipadinyagakadaorangterusterpaksaakubaliklagikekeretadanmenungguteman  
-Output: "Saya mau ke pasar membeli buah, tapi padinya nggak ada orang. Terus, terpaksa aku balik lagi ke kereta dan menunggu teman."
-
-"""
-
-    payload = {
-        "model": "google/gemma-3-12b-it:free",
-        "messages": [
-            {
-                "role":"system",
-                "content": system_prompt
-            },
-            {
-                "role": "user",
-                "content": raw_text
-            }
-        ]
-    }
-    headers = {
-        "Authorization": f"Bearer {os.getenv('OR_APIKEY')}",
-        "Content-Type": "application/json"
-    }
-def clearer(raw_text):
     system_prompt = """
 Tolong ubah teks Bahasa Indonesia di bawah ini menjadi kalimat lengkap dan mudah dibaca. Teks ini ditulis tanpa spasi dan mungkin mengandung salah ketik (typo). Koreksi kata-kata yang salah, tambahkan spasi, dan susun menjadi kalimat yang benar sesuai tata bahasa Indonesia.
 
-Berikan hasil akhirnya **hanya** dalam tanda petik ganda seperti "..." tanpa penjelasan tambahan.
+Berikan hasil akhirnya hanya dalam tanda petik ganda seperti "..." tanpa penjelasan tambahan.
 Contoh:
-Input: sayamaukepasarmembelibuahtapipadinyagakadaorangterusterpaksaakubaliklagikekeretadanmenungguteman  
+Input: sayamaukepasarmembelibuahtapipadinyagakadaorangterusterpaksaakubaliklagikekeretadanmenungguteman
 Output: "Saya mau ke pasar membeli buah, tapi padinya nggak ada orang. Terus, terpaksa aku balik lagi ke kereta dan menunggu teman."
 """
 
-    payload = {
-        "model": "google/gemma-3-12b-it:free",
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": raw_text}
-        ]
-    }
-    headers = {
-        "Authorization": f"Bearer {os.getenv('OR_APIKEY')}",
-        "Content-Type": "application/json"
-    }
+    # 1) Coba pakai OpenRouter (jika API key ada)
+    or_key = os.getenv("OR_APIKEY")
+    if or_key:
+        try:
+            payload = {
+                "model": "google/gemma-3-12b-it:free",
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": raw_text}
+                ]
+            }
+            headers = {
+                "Authorization": f"Bearer {or_key}",
+                "Content-Type": "application/json"
+            }
+            resp = requests.post("https://openrouter.ai/api/v1/chat/completions", json=payload, headers=headers, timeout=15)
+            if resp.status_code == 200:
+                data = resp.json()
+                # sesuaikan path response jika beda
+                return data["choices"][0]["message"]["content"].strip()
+            else:
+                # lanjut ke fallback
+                print("OpenRouter status:", resp.status_code, resp.text)
+        except Exception as e:
+            print("OpenRouter error:", e)
 
-    
-    response = requests.post("https://openrouter.ai/api/v1/chat/completions", json=payload, headers=headers)
-    stat = response.status_code
-    print("::::::::::::",stat)
-    
-    if stat == "200":
-        return response.json()["choices"][0]["message"]["content"]
-    else:
-        print("move to gemini AI API")
-        payload = {
-            "contents": [
-                {
-                    "role": "model",
-                    "parts": [
-                        {
-                            "text": system_prompt
-                        }
-                    ]
-                },
-                {
-                    "role": "user",
-                    "parts": [
-                        {
-                            "text": raw_text
-                        }
-                    ]
-                }
-            ]
-        }
-    
-        headers = {
-            "X-goog-api-key": os.getenv('GGLAI_H'),
-            "Content-Type": "application/json"
-        }
-        
-        response = requests.post("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent" ,json=payload, headers=headers)
-        
-        return response.json()["candidates"][0]["content"]["parts"][0]["text"]
+    # 2) Fallback: jika punya Google Generative API key
+    ggl_key = os.getenv("GGLAI_H")
+    if ggl_key:
+        try:
+            payload = {
+                "contents": [
+                    {
+                        "role": "model",
+                        "parts": [{"text": system_prompt}]
+                    },
+                    {
+                        "role": "user",
+                        "parts": [{"text": raw_text}]
+                    }
+                ]
+            }
+            headers = {
+                "X-goog-api-key": ggl_key,
+                "Content-Type": "application/json"
+            }
+            resp = requests.post(
+                "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+                json=payload, headers=headers, timeout=15
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            else:
+                print("Gemini API status:", resp.status_code, resp.text)
+        except Exception as e:
+            print("Gemini API error:", e)
+
+    # 3) Jika semua gagal, kembalikan raw_text sebagai fallback (atau kosong)
+    return raw_text
 
 # === Konfigurasi halaman utama ===
 st.set_page_config(page_title="Deteksi SIBI", layout="wide")
@@ -123,12 +112,8 @@ if halaman.startswith("🏠"):
     st.title("📘 Abjad Bahasa Isyarat SIBI")
     st.markdown("""
     Selamat datang di aplikasi deteksi huruf **SIBI (Sistem Isyarat Bahasa Indonesia)** satu tangan secara real-time.
-Aplikasi ini memanfaatkan **MediaPipe** untuk mendeteksi koordinat landmark tangan, kemudian diklasifikasikan menggunakan **Random Forest**. 
-Hasil deteksi huruf disusun menjadi kata dan kalimat, serta diperbaiki secara otomatis menggunakan **LLM Gemma 3 melalui OpenRouter** agar sesuai dengan kaidah bahasa Indonesia.
-
-
-    > Gunakan **tangan kanan**, posisikan di depan kamera untuk mengenali huruf A–Y.  
-    Huruf **J** dan **Z** tidak didukung karena melibatkan gerakan dinamis.
+    Aplikasi ini memanfaatkan **MediaPipe** untuk mendeteksi koordinat landmark tangan, kemudian diklasifikasikan menggunakan **Random Forest**. 
+    Hasil deteksi huruf disusun menjadi kata dan kalimat, serta diperbaiki secara otomatis menggunakan **LLM Gemma 3 melalui OpenRouter** agar sesuai dengan kaidah bahasa Indonesia.
     """)
     st.image("assets/img/alfabet.jpg", caption="Abjad dalam SIBI", use_container_width=True)
     st.info("👉 Pindah ke halaman **Deteksi SIBI** melalui sidebar untuk memulai pengenalan huruf.")
@@ -137,14 +122,45 @@ Hasil deteksi huruf disusun menjadi kata dan kalimat, serta diperbaiki secara ot
 elif halaman.startswith("📷"):
 
     st.title("🤖 Deteksi Huruf SIBI Real-Time")
-    raw_letters = ""
 
-    # Download model jika belum ada
-if not os.path.exists("sibi_rf_model.pkl"):
-    url = "https://drive.google.com/file/d/1U2Me1TWPst6OFHwkuJISQmrbYhz-VJay/view?usp=sharing"  # ganti ID-nya
-    gdown.download(url, "sibi_rf_model.pkl", quiet=False)
-    # Load model
-    model = joblib.load("sibi_rf_model.pkl")
+    # Pastikan ada file log untuk menyimpan kata sementara
+    if not os.path.exists("./log_raw.txt"):
+        with open("./log_raw.txt", "w") as f:
+            f.write("")
+
+    # --- Download model jika belum ada ---
+    model_filename = "sibi_rf_model.pkl"
+    if not os.path.exists(model_filename):
+        # Terima link Google Drive share atau link raw; ubah sesuai link kamu.
+        # Contoh share link: https://drive.google.com/file/d/1U2Me1TWPst6OFHwkuJISQmrbYhz-VJay/view?usp=sharing
+        drive_link = "https://drive.google.com/file/d/1U2Me1TWPst6OFHwkuJISQmrbYhz-VJay/view?usp=sharing"  # ganti dengan link kamu
+
+        # Jika link berformat /file/d/ID/..., ekstrak ID
+        file_id = None
+        if "drive.google.com" in drive_link:
+            import re
+            m = re.search(r"/d/([a-zA-Z0-9_-]+)", drive_link)
+            if m:
+                file_id = m.group(1)
+                download_url = f"https://drive.google.com/uc?id={file_id}"
+            else:
+                # mungkin sudah dalam format uc?id=...
+                download_url = drive_link
+        else:
+            download_url = drive_link
+
+        try:
+            st.info("Mengunduh model, tunggu sebentar...")
+            gdown.download(download_url, model_filename, quiet=False)
+        except Exception as e:
+            st.error(f"Gagal mendownload model: {e}")
+
+    # Setelah ada file, load model (cek lagi kalau gagal)
+    try:
+        model = joblib.load(model_filename)
+    except Exception as e:
+        st.error(f"Gagal memuat model: {e}")
+        st.stop()
 
     # Inisialisasi MediaPipe
     mp_hands = mp.solutions.hands
@@ -190,11 +206,9 @@ if not os.path.exists("sibi_rf_model.pkl"):
                             if self.current_prediction != self.last_appended:
                                 self.kata += self.current_prediction
                                 self.last_appended = self.current_prediction
-                                self.raw_letters = self.kata
-                                print(f"DEBUG::: {self.kata}")
+                                # tulis ke file log agar nanti bisa diproses saat STOP
                                 with open("./log_raw.txt", "w") as f:
                                     f.write(self.kata)
-                                
                         else:
                             self.current_prediction = "Menstabilkan..."
                     else:
@@ -223,6 +237,7 @@ if not os.path.exists("sibi_rf_model.pkl"):
 
             return img
 
+    # Layout dan webrtc
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         # Initialize post-processing flag
@@ -239,15 +254,20 @@ if not os.path.exists("sibi_rf_model.pkl"):
 
     # Detect STOP: PLAYING → READY
     if not webrtc_ctx.state.playing and not st.session_state.processed_on_stop:
-        with open("./log_raw.txt", "r") as f:
-            raw_text = f.read().strip()
+        # Baca file log jika ada
+        if os.path.exists("./log_raw.txt"):
+            with open("./log_raw.txt", "r") as f:
+                raw_text = f.read().strip()
+        else:
+            raw_text = ""
+
         st.write(f"raw text: {raw_text}")
 
-        # RESET
+        # RESET file log
         with open("./log_raw.txt", "w") as f:
             f.write("")
 
-        # Your custom logic here
+        # Proses perbaikan kalimat
         with st.spinner("🛑 Stream stopped. Running post-processing..."):
             if raw_text:
                 startt = time.time()
@@ -262,8 +282,7 @@ if not os.path.exists("sibi_rf_model.pkl"):
             st.session_state.processing_done = True
             st.session_state.processed_on_stop = True
 
-
-    # Reset when stream starts again
+    # Reset ketika stream berjalan lagi
     if webrtc_ctx.state.playing:
         st.session_state.processed_on_stop = False
 
