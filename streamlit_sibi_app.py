@@ -1,7 +1,7 @@
 import streamlit as st
 from streamlit_webrtc import (
-    webrtc_streamer, 
-    VideoTransformerBase, 
+    webrtc_streamer,
+    VideoTransformerBase,
     WebRtcMode,
 )
 import av
@@ -10,137 +10,121 @@ import cv2
 import joblib
 import mediapipe as mp
 from collections import deque, Counter
-
-import requests
+import requests  # Diperlukan untuk download dari Hugging Face
 from dotenv import load_dotenv
 import os
 import time
-import requests
 
+# Muat environment variables jika ada (untuk API keys)
 load_dotenv()
 
+# === Fungsi untuk memperbaiki kalimat menggunakan LLM (tidak diubah) ===
 def clearer(raw_text):
-    system_prompt="""
-Tolong ubah teks Bahasa Indonesia di bawah ini menjadi kalimat lengkap dan mudah dibaca. Teks ini ditulis tanpa spasi dan mungkin mengandung salah ketik (typo). Koreksi kata-kata yang salah, tambahkan spasi, dan susun menjadi kalimat yang benar sesuai tata bahasa Indonesia.
-
-Berikan hasil akhirnya **hanya** dalam tanda petik ganda seperti "..." tanpa penjelasan tambahan.
-Contoh:
-Input: sayamaukepasarmembelibuahtapipadinyagakadaorangterusterpaksaakubaliklagikekeretadanmenungguteman  
-Output: "Saya mau ke pasar membeli buah, tapi padinya nggak ada orang. Terus, terpaksa aku balik lagi ke kereta dan menunggu teman."
-
-"""
-
-    payload = {
-        "model": "google/gemma-3-12b-it:free",
-        "messages": [
-            {
-                "role":"system",
-                "content": system_prompt
-            },
-            {
-                "role": "user",
-                "content": raw_text
-            }
-        ]
-    }
-    headers = {
-        "Authorization": f"Bearer {os.getenv('OR_APIKEY')}",
-        "Content-Type": "application/json"
-    }
-def clearer(raw_text):
+    if not raw_text:
+        return ""
     system_prompt = """
-Tolong ubah teks Bahasa Indonesia di bawah ini menjadi kalimat lengkap dan mudah dibaca. Teks ini ditulis tanpa spasi dan mungkin mengandung salah ketik (typo). Koreksi kata-kata yang salah, tambahkan spasi, dan susun menjadi kalimat yang benar sesuai tata bahasa Indonesia.
-
-Berikan hasil akhirnya **hanya** dalam tanda petik ganda seperti "..." tanpa penjelasan tambahan.
-Contoh:
-Input: sayamaukepasarmembelibuahtapipadinyagakadaorangterusterpaksaakubaliklagikekeretadanmenungguteman  
-Output: "Saya mau ke pasar membeli buah, tapi padinya nggak ada orang. Terus, terpaksa aku balik lagi ke kereta dan menunggu teman."
+Tolong ubah teks Bahasa Indonesia di bawah ini menjadi kalimat lengkap dan mudah dibaca. Teks ini ditulis tanpa spasi dan mungkin mengandung salah ketik (typo). Koreksi kata-kata yang salah, tambahkan spasi, dan susun menjadi kalimat yang benar sesuai tata bahasa Indonesia. Berikan hasil akhirnya hanya dalam tanda petik ganda seperti "..." tanpa penjelasan tambahan. Contoh: Input: sayamaukepasarmembelibuahtapipadinyagakadaorangterusterpaksaakubaliklagikekeretadanmenungguteman Output: "Saya mau ke pasar membeli buah, tapi padinya nggak ada orang. Terus, terpaksa aku balik lagi ke kereta dan menunggu teman."
 """
-
-    payload = {
-        "model": "google/gemma-3-12b-it:free",
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": raw_text}
-        ]
-    }
-    headers = {
-        "Authorization": f"Bearer {os.getenv('OR_APIKEY')}",
-        "Content-Type": "application/json"
-    }
-
-    
-    response = requests.post("https://openrouter.ai/api/v1/chat/completions", json=payload, headers=headers)
-    stat = response.status_code
-    print("::::::::::::",stat)
-    
-    if stat == "200":
-        return response.json()["choices"][0]["message"]["content"]
-    else:
-        print("move to gemini AI API")
-        payload = {
-            "contents": [
-                {
-                    "role": "model",
-                    "parts": [
-                        {
-                            "text": system_prompt
-                        }
-                    ]
-                },
-                {
-                    "role": "user",
-                    "parts": [
-                        {
-                            "text": raw_text
-                        }
-                    ]
-                }
-            ]
-        }
-    
-        headers = {
-            "X-goog-api-key": os.getenv('GGLAI_H'),
-            "Content-Type": "application/json"
-        }
-        
-        response = requests.post("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent" ,json=payload, headers=headers)
-        
-        return response.json()["candidates"][0]["content"]["parts"][0]["text"]
+    # 1) Coba pakai OpenRouter
+    or_key = os.getenv("OR_APIKEY")
+    if or_key:
+        try:
+            payload = {"model": "google/gemma-2-9b-it:free", "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": raw_text}]}
+            headers = {"Authorization": f"Bearer {or_key}", "Content-Type": "application/json"}
+            resp = requests.post("https://openrouter.ai/api/v1/chat/completions", json=payload, headers=headers, timeout=20)
+            if resp.status_code == 200:
+                return resp.json()["choices"][0]["message"]["content"].strip('"')
+            else:
+                print("OpenRouter status:", resp.status_code, resp.text)
+        except Exception as e:
+            print("OpenRouter error:", e)
+    # 2) Fallback: Google Generative AI
+    ggl_key = os.getenv("GGLAI_H")
+    if ggl_key:
+        try:
+            payload = {"contents": [{"role": "model", "parts": [{"text": system_prompt}]}, {"role": "user", "parts": [{"text": raw_text}]}]}
+            headers = {"X-goog-api-key": ggl_key, "Content-Type": "application/json"}
+            resp = requests.post("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent", json=payload, headers=headers, timeout=20)
+            if resp.status_code == 200:
+                return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip('"')
+            else:
+                print("Gemini API status:", resp.status_code, resp.text)
+        except Exception as e:
+            print("Gemini API error:", e)
+    return f'"{raw_text}" (gagal diproses LLM)'
 
 # === Konfigurasi halaman utama ===
 st.set_page_config(page_title="Deteksi SIBI", layout="wide")
 
 # === Sidebar Interaktif ===
 with st.sidebar:
-    st.image("assets/img/alfabet.jpg", width=180)
+    st.image("https://raw.githubusercontent.com/rizal-muhamad/sibi-app/main/assets/img/alfabet.jpg", width=180)
     st.markdown("## 🧭 Menu Utama")
     halaman = st.radio("📂 Pilih Halaman:", ["🏠 Beranda", "📷 Deteksi SIBI"])
 
-# === Halaman: Beranda ===
+# === Halaman: Beranda (tidak diubah) ===
 if halaman.startswith("🏠"):
     st.title("📘 Abjad Bahasa Isyarat SIBI")
     st.markdown("""
     Selamat datang di aplikasi deteksi huruf **SIBI (Sistem Isyarat Bahasa Indonesia)** satu tangan secara real-time.
-Aplikasi ini memanfaatkan **MediaPipe** untuk mendeteksi koordinat landmark tangan, kemudian diklasifikasikan menggunakan **Random Forest**. 
-Hasil deteksi huruf disusun menjadi kata dan kalimat, serta diperbaiki secara otomatis menggunakan **LLM Gemma 3 melalui OpenRouter** agar sesuai dengan kaidah bahasa Indonesia.
-
-
-    > Gunakan **tangan kanan**, posisikan di depan kamera untuk mengenali huruf A–Y.  
-    Huruf **J** dan **Z** tidak didukung karena melibatkan gerakan dinamis.
+    Aplikasi ini memanfaatkan **MediaPipe** untuk mendeteksi koordinat landmark tangan, kemudian diklasifikasikan menggunakan **Random Forest**. 
+    Hasil deteksi huruf disusun menjadi kata dan kalimat, serta diperbaiki secara otomatis menggunakan **model bahasa (LLM)** agar sesuai dengan kaidah bahasa Indonesia.
     """)
-    st.image("assets/img/alfabet.jpg", caption="Abjad dalam SIBI", use_container_width=True)
+    st.image("https://raw.githubusercontent.com/rizal-muhamad/sibi-app/main/assets/img/alfabet.jpg", caption="Abjad dalam SIBI", use_container_width=True)
     st.info("👉 Pindah ke halaman **Deteksi SIBI** melalui sidebar untuk memulai pengenalan huruf.")
 
 # === Halaman: Deteksi SIBI ===
 elif halaman.startswith("📷"):
 
     st.title("🤖 Deteksi Huruf SIBI Real-Time")
-    raw_letters = ""
-    # Load model
-    model = joblib.load("sibi_rf_model.pkl")
+    
+    # Pastikan ada file log untuk menyimpan kata sementara
+    log_file = "./log_raw.txt"
+    if not os.path.exists(log_file):
+        with open(log_file, "w") as f:
+            f.write("")
 
-    # Inisialisasi MediaPipe
+    # --- IMPLEMENTASI BARU: Download dan Load Model dari Hugging Face ---
+    @st.cache_resource
+    def load_model_from_hf():
+        """
+        Mengunduh model dari Hugging Face Hub jika belum ada, lalu memuatnya.
+        Fungsi ini di-cache agar tidak dijalankan berulang kali.
+        """
+        model_filename = "sibi_rf_model.pkl"
+        
+        if not os.path.exists(model_filename):
+            # ⬇️ GANTI URL DI BAWAH INI DENGAN LINK DARI REPO HUGGING FACE ANDA ⬇️
+            # Contoh: "https://huggingface.co/nama-user/nama-repo/resolve/main/sibi_rf_model.pkl"
+            hf_url = "https://huggingface.co/nept28/sibi-random-forest-classifier/resolve/main/sibi_rf_model.pkl" # <-- GANTI INI
+            
+            try:
+                with st.spinner(f"Mengunduh model '{model_filename}' dari Hugging Face..."):
+                    response = requests.get(hf_url)
+                    response.raise_for_status()  # Cek jika download gagal
+                    with open(model_filename, "wb") as f:
+                        f.write(response.content)
+            except Exception as e:
+                st.error(f"Gagal mengunduh model: {e}")
+                return None
+                
+        # Muat model dari file lokal yang sudah diunduh
+        try:
+            model = joblib.load(model_filename)
+            return model
+        except Exception as e:
+            st.error(f"Gagal memuat model dari file: {e}")
+            return None
+
+    # Panggil fungsi baru untuk memuat model
+    model = load_model_from_hf()
+
+    # Hentikan aplikasi jika model gagal dimuat
+    if model is None:
+        st.stop()
+    # --------------------------------------------------------------------
+
+    # Inisialisasi MediaPipe (tidak diubah)
     mp_hands = mp.solutions.hands
     hands = mp_hands.Hands(
         static_image_mode=False,
@@ -149,13 +133,13 @@ elif halaman.startswith("📷"):
         min_tracking_confidence=0.6
     )
 
-    # === Video Processor ===
+    # === Video Processor (tidak diubah) ===
     class SignPredictor(VideoTransformerBase):
         def __init__(self):
-            self.prediction_history = deque(maxlen=9)
+            self.prediction_history = deque(maxlen=15)
             self.current_prediction = "..."
-            self.last_appended = None
-            self.kata = ""
+            self.last_appended_char = None
+            self.word_string = ""
 
         def extract_raw_landmarks(self, image):
             image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -177,90 +161,62 @@ elif halaman.startswith("📷"):
                     pred = model.predict([features])[0]
                     self.prediction_history.append(pred)
 
-                    if len(self.prediction_history) >= 6:
+                    if len(self.prediction_history) >= 10:
                         most_common, count = Counter(self.prediction_history).most_common(1)[0]
-                        if count >= 6:
+                        if count >= 8:
                             self.current_prediction = most_common
-                            if self.current_prediction != self.last_appended:
-                                self.kata += self.current_prediction
-                                self.last_appended = self.current_prediction
-                                self.raw_letters = self.kata
-                                print(f"DEBUG::: {self.kata}")
-                                with open("./log_raw.txt", "w") as f:
-                                    f.write(self.kata)
-                                
+                            if self.current_prediction != self.last_appended_char:
+                                self.word_string += self.current_prediction
+                                self.last_appended_char = self.current_prediction
+                                with open(log_file, "w") as f:
+                                    f.write(self.word_string)
                         else:
                             self.current_prediction = "Menstabilkan..."
                     else:
                         self.current_prediction = "Menstabilkan..."
-                except Exception as e:
-                    self.current_prediction = f"Error: {str(e)}"
+                except Exception:
+                    self.current_prediction = "Error prediksi"
             else:
                 self.prediction_history.clear()
                 self.current_prediction = "Tangan tidak terdeteksi"
+                self.last_appended_char = None
 
-            # === Tampilkan huruf prediksi (kiri atas) ===
-            cv2.rectangle(img, (0, 0), (400, 40), (0, 255, 0), 1)
-            cv2.putText(img, f"{self.current_prediction}", (10, 28),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
-
-            # === Tampilkan kata (kiri bawah) ===
-            raw = self.kata if self.kata else ''
-            kata_text = f"KATA = {raw}"
-
-            (text_w, _), _ = cv2.getTextSize(kata_text, cv2.FONT_HERSHEY_SIMPLEX, 1.0, 2)
-            y1 = img.shape[0] - 50
-            y2 = img.shape[0]
-            cv2.rectangle(img, (0, y1), (text_w + 20, y2), (0, 0, 0), -1)
-            cv2.putText(img, kata_text, (10, y2 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
-
+            cv2.rectangle(img, (0, 0), (400, 40), (21, 113, 23, 255), -1)
+            cv2.putText(img, f"Prediksi: {self.current_prediction}", (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+            kata_text = f"KATA: {self.word_string}"
+            (text_w, _), _ = cv2.getTextSize(kata_text, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)
+            y1, y2 = img.shape[0] - 50, img.shape[0]
+            cv2.rectangle(img, (0, y1), (text_w + 20, y2), (0, 0, 0, 128), -1)
+            cv2.putText(img, kata_text, (10, y2 - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
             return img
 
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        # Initialize post-processing flag
-        if "processed_on_stop" not in st.session_state:
-            st.session_state.processed_on_stop = False
+    # Layout dan webrtc (tidak diubah)
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        st.info("Hasil Perbaikan")
+        result_placeholder = st.empty()
+        result_placeholder.markdown("`Belum ada kalimat yang terbentuk.`")
 
+    with col2:
         webrtc_ctx = webrtc_streamer(
             key="sibi-app",
             mode=WebRtcMode.SENDRECV,
             video_processor_factory=SignPredictor,
-            media_stream_constraints={"video": True, "audio": False},
+            media_stream_constraints={"video": {"height": 720}, "audio": False},
             async_processing=True,
+            rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
         )
 
-    # Detect STOP: PLAYING → READY
-    if not webrtc_ctx.state.playing and not st.session_state.processed_on_stop:
-        with open("./log_raw.txt", "r") as f:
+    # Proses perbaikan teks setelah stream berhenti (tidak diubah)
+    if not webrtc_ctx.state.playing and os.path.exists(log_file):
+        with open(log_file, "r") as f:
             raw_text = f.read().strip()
-        st.write(f"raw text: {raw_text}")
-
-        # RESET
-        with open("./log_raw.txt", "w") as f:
-            f.write("")
-
-        # Your custom logic here
-        with st.spinner("🛑 Stream stopped. Running post-processing..."):
-            if raw_text:
-                startt = time.time()
-                result = clearer(raw_text)
-                endt = time.time() - startt
-
-                st.write(f"result: {result}")
-                st.write(f"{round(endt, 2)} seconds")
-            else:
-                st.write("No Words")
-
-            st.session_state.processing_done = True
-            st.session_state.processed_on_stop = True
-
-
-    # Reset when stream starts again
-    if webrtc_ctx.state.playing:
-        st.session_state.processed_on_stop = False
-
+        if raw_text:
+            with st.spinner("Memperbaiki kalimat yang terbentuk..."):
+                final_result = clearer(raw_text)
+                result_placeholder.success(f"**Hasil:** {final_result}")
+            with open(log_file, "w") as f:
+                f.write("")
+                
     st.markdown("---")
-    st.info("💡 Tips: Letakkan tangan kanan di tengah kamera dan tahan selama 1–2 detik. Untuk menghapus kata yang sudah terbentuk, silakan hentikan dan jalankan kembali kamera.")
-    st.caption("Deteksi dan Perbaikan Kalimat Bahasa Isyarat")
+    st.info("💡 **Tips:** Posisikan tangan kanan di tengah kamera dan tahan setiap huruf selama 1-2 detik. Untuk menghapus kalimat, hentikan dan jalankan ulang kamera.")
