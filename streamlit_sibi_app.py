@@ -17,8 +17,18 @@ from dotenv import load_dotenv
 import os
 import time
 import uuid
-import nest_asyncio
 import requests
+import nest_asyncio
+nest_asyncio.apply()
+
+import asyncio
+
+try:
+    loop = asyncio.get_event_loop()
+except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
 
 load_dotenv()
 
@@ -233,8 +243,6 @@ elif halaman.startswith("📷"):
             st.session_state.processed_on_stop = False
         
         # SETUP WEBRTC
-        nest_asyncio.apply()
-
         RTC_CONFIGURATION = RTCConfiguration({
             "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
         })
