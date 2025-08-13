@@ -98,6 +98,5 @@ plt.savefig("confusion_matrix.png")
 plt.show()
 print("📸 Confusion matrix disimpan sebagai 'confusion_matrix.png'")
 
-# Simpan Model
-joblib.dump(model, "sibi_rf_model.pkl")
-print("\n💾 Model disimpan sebagai 'sibi_rf_model.pkl'")
+# Simpan model dengan kompresi
+joblib.dump(model, "sibi_rf_model.pkl", compress=3)
