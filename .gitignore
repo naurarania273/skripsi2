@@ -1,0 +1,5 @@
+*.zip
+packages.txt
+testllm*
+backup.py
+.env

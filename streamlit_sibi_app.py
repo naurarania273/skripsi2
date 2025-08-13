@@ -3,6 +3,7 @@ from streamlit_webrtc import (
     webrtc_streamer, 
     VideoTransformerBase, 
     WebRtcMode,
+    RTCConfiguration
 )
 import av
 import numpy as np
@@ -15,9 +16,17 @@ import requests
 from dotenv import load_dotenv
 import os
 import time
+import uuid
+import nest_asyncio
 import requests
 
 load_dotenv()
+
+
+if "session_key" not in st.session_state:
+    st.session_state["session_key"] = f"user-{uuid.uuid4()}"
+
+sess_k = st.session_state["session_key"]
 
 def clearer(raw_text):
     system_prompt="""
@@ -74,7 +83,7 @@ Output: "Saya mau ke pasar membeli buah, tapi padinya nggak ada orang. Terus, te
     stat = response.status_code
     print("::::::::::::",stat)
     
-    if stat == "200":
+    if str(stat) == "200":
         return response.json()["choices"][0]["message"]["content"]
     else:
         print("move to gemini AI API")
@@ -222,13 +231,23 @@ elif halaman.startswith("📷"):
         # Initialize post-processing flag
         if "processed_on_stop" not in st.session_state:
             st.session_state.processed_on_stop = False
+        
+        # SETUP WEBRTC
+        nest_asyncio.apply()
 
+        RTC_CONFIGURATION = RTCConfiguration({
+            "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+        })
+
+        print("log sess_k:", sess_k)
+        
         webrtc_ctx = webrtc_streamer(
-            key="sibi-app",
+            key=sess_k,
             mode=WebRtcMode.SENDRECV,
             video_processor_factory=SignPredictor,
             media_stream_constraints={"video": True, "audio": False},
             async_processing=True,
+            # rtc_configuration=RTC_CONFIGURATION
         )
 
     # Detect STOP: PLAYING → READY
